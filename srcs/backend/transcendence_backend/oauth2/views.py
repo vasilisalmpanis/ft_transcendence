@@ -9,17 +9,11 @@ from django.conf                    import settings
 from authorize.views                import create_token
 from datetime                       import datetime, timedelta
 from users.services                 import UserService, SecondFactorService
+from django.conf                    import settings
 import logging, os, json, http.client
 
 logger = logging.getLogger(__name__)
 signer = Signer()
-
-def health_check (request) -> JsonResponse:
-    """
-    Health check for oauth app
-    """
-    data = {'health-check oauth': 'alive'}
-    return JsonResponse(data, status=200)
 
 # open in new window in frontend
 def ft_intra_auth(request):
@@ -27,9 +21,10 @@ def ft_intra_auth(request):
     Builds a request url to the 42intra OAuth2 endpoint
     :return: redirection to 42intra auth endpoint
     """
+    
     auth_base_url = 'https://api.intra.42.fr/oauth/authorize'
-    client_id = os.environ.get('OAUTH_UID')
-    state = signer.sign(os.environ.get('OAUTH_STATE'))
+    client_id = settings.OAUTH_UID
+    state = signer.sign(settings.OAUTH_STATE)
     redirect_url = 'http://localhost:8000/oauth2/redir'
     response_type = 'code'
     auth_full_url = (
@@ -48,13 +43,13 @@ def handle_redir(request) -> JsonResponse:
     try:
         state = signer.unsign(request.GET.get('state'))
     except BadSignature:
-        return JsonResponse({'status': 'State not matching', 'state': state}, status=400)
+        return JsonResponse({'status': 'State not matching'}, status=400)
     if not auth_code or state != os.environ.get("OAUTH_STATE"):
         return JsonResponse({'status': 'Authorization code not provided or state mismatch'}, status=400)
 
     parameters = json.dumps({
-        'client_id': os.environ.get('OAUTH_UID'),
-        'client_secret': os.environ.get('OAUTH_SECRET'),
+        'client_id': settings.OAUTH_UID,
+        'client_secret': settings.OAUTH_SECRET,
         'redirect_uri': 'http://localhost:8000/oauth2/redir',
         'code': auth_code,
         'grant_type': 'authorization_code'
@@ -93,6 +88,7 @@ def fetch_user_data(access_token):
     conn = http.client.HTTPSConnection('api.intra.42.fr')
     conn.request('GET', '/v2/me', headers=user_headers)
     data_response_raw = conn.getresponse()
+    logger.warn(data_response_raw)
 
     if data_response_raw.status == 200:
         data_response = json.loads(data_response_raw.read().decode('utf-8'))

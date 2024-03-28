@@ -26,4 +26,5 @@ urlpatterns = [
     path("", include("authorize.urls")),
     path("", include("oauth2.urls")),
     path("", include("pong.urls")),
+    path("", include("tournament.urls")),
 ]

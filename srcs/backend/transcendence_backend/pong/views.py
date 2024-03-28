@@ -66,7 +66,7 @@ class PongView(View):
         try:
             game_id = data.get('game_id', None)
             game = PongService.delete_game(game_id, user)
-            return JsonResponse({"game" : "deleted"}, status=200)
+            return JsonResponse(game, status=200)
         except Exception as e:
             return JsonResponse({'Error': str(e)}, status=400)
         

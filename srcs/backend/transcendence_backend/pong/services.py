@@ -1,28 +1,27 @@
-from ast import Dict
-from types import NoneType
-from typing import Dict, Any, List
+from ast            import Dict
+from types          import NoneType
+from typing         import Dict, Any, List
 from .models        import Pong, pong_model_to_dict    
-from users.models   import User
+from users.models   import User, user_model_to_dict
+from django.db.models import Q
 
 
 def join_game(user , game_id : int):
     '''Joins user to game'''
     game = Pong.objects.get(id=game_id)
-    user_games = Pong.objects.filter(players=user)
+    user_games = Pong.objects.filter(Q(player1=user) | Q(player2=user))
     if game.status == 'finished':
         return False
-    if user in game.players.all():
+    if user == game.player1 or user == game.player2:
         game.status = 'running'
         return True
-    if game.players.count() == 2:
+    if game.player2 is not None:
         return False
     if user_games.filter(status='pending').exists() or user_games.filter(status='running').exists():
         return False
-    game.players.add(user)
+    game.player2 = user
+    game.status = 'running'
     game.save()
-    if game.players.count() == 2:
-        game.status = 'running'
-        game.save()
     return True
 
 def pause_game(game_id: int):
@@ -38,17 +37,7 @@ def resume_game(game_id: int):
     if game.status == 'paused':
         game.status = 'running'
         game.save()
-import logging
-logger = logging.getLogger(__name__)
-def get_side(game_id: int, user: User) -> str:
-    '''Returns the side of the user in the game'''
-    game = Pong.objects.get(id=game_id)
-    first_user = game.players.first()
-    if user.username == first_user.username:
-        logging.error(f"{user.username} is left {first_user.username}")
-        return 'left'
-    logging.error(f"{user.username} is right {first_user.username}")
-    return 'right'
+
 
 
 class PongService:
@@ -65,15 +54,15 @@ class PongService:
         """
         if me:
             if type == 'all':
-                games = Pong.objects.filter(players=user).order_by('-timestamp')[skip:skip+limit]
+                games = Pong.objects.filter(Q(player1=user) | Q(player2=user)).order_by('-timestamp')[skip:skip+limit]
             elif type == 'pending':
-                games = Pong.objects.filter(players=user).filter(status='pending').order_by('-timestamp')[skip:skip+limit]
+                games = Pong.objects.filter(Q(player1=user) | Q(player2=user)).filter(status='pending').order_by('-timestamp')[skip:skip+limit]
             elif type == 'finished':
-                games = Pong.objects.filter(players=user).filter(status='finished').order_by('-timestamp')[skip:skip+limit]
+                games = Pong.objects.filter(Q(player1=user) | Q(player2=user)).filter(status='finished').order_by('-timestamp')[skip:skip+limit]
             elif type == 'running':
-                games = Pong.objects.filter(players=user).filter(status='running').order_by('-timestamp')[skip:skip+limit]
+                games = Pong.objects.filter(Q(player1=user) | Q(player2=user)).filter(status='running').order_by('-timestamp')[skip:skip+limit]
             elif type == 'paused':
-                games = Pong.objects.filter(players=user).filter(status='paused').order_by('-timestamp')[skip:skip+limit]
+                games = Pong.objects.filter(Q(player1=user) | Q(player2=user)).filter(status='paused').order_by('-timestamp')[skip:skip+limit]
             else:
                 raise Exception('Invalid type')
         else:
@@ -98,7 +87,7 @@ class PongService:
         @param user: User
         @return: bool
         """
-        if Pong.objects.filter(players=user).filter(status='pending').exists() or Pong.objects.filter(players=user).filter(status='running').exists():
+        if Pong.objects.filter(Q(player1=user) | Q(player2=user)).filter(status='pending').exists() or Pong.objects.filter(Q(player1=user) | Q(player2=user)).filter(status='running').exists():
             return True
         return False
 
@@ -111,9 +100,7 @@ class PongService:
         """
         if PongService.check_user_already_joined(user):
             raise Exception('You have a game in progress')
-        game = Pong.objects.create()
-        game.players.add(user)
-        game.save()
+        game = Pong.objects.create(player1=user)
         return pong_model_to_dict(game)
     
     @staticmethod
@@ -142,11 +129,11 @@ class PongService:
             raise Exception('Game not found')
         if game.status != 'pending':
             raise Exception('Game already running')
-        if game.players.filter(id=user.id).exists() and game.players.count() == 2:
+        if game.players.filter(Q(player1=user) | Q(player2=user)).exists() and game.player2 is not None == 2:
             raise Exception('User already joined')
-        if PongService.check_user_already_joined(user) and game.players.count() == 2:
+        if PongService.check_user_already_joined(user) and game.player2 is not None:
             raise Exception('You have a game in progress')
-        if not game.players.filter(id=user.id).exists():  
+        if not game.player1 == user and game.player2 is None:  
             game.players.add(user)
             game.save()
         return pong_model_to_dict(game)
@@ -176,7 +163,10 @@ class PongService:
         game.score2 = score2
         game.status = 'finished'
         game.save()
-
+        if score1 > score2:
+            return user_model_to_dict(game.player1, avatar=False)
+        elif score1 < score2:
+            return user_model_to_dict(game.player2, avatar=False)
         return pong_model_to_dict(game)
     
     @staticmethod
@@ -188,8 +178,9 @@ class PongService:
         game = Pong.objects.filter(id=game_id).first()
         if not game:
             raise Exception('Game not found')
-        if game.players.filter(id=user.id).exists() and game.status == 'pending':
+        if game.player1 == user or game.player2 == user and game.status == 'pending':
             game.delete()
+            return pong_model_to_dict(game)
         else:
             raise Exception('You are either not a participant or the game has already started')
         

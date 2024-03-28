@@ -1,11 +1,10 @@
 from ast                        import mod
 from email.policy               import default
 from http                       import server
-from statistics                 import mode
 from django.db                  import models
 from users.models.users         import User
 from django.utils               import timezone
-from django.db.models           import Q
+from typing                     import Any, Dict
 
 # Create your models here.
 
@@ -19,7 +18,7 @@ class Chat(models.Model):
         verbose_name_plural = 'Chats'
 
 
-def chat_model_to_dict(chat : "Chat") -> dict:
+def chat_model_to_dict(chat : "Chat") -> Dict[Any,Any]:
     """
     Convert chat model to dict
     :param chat: Chat instance
@@ -27,12 +26,13 @@ def chat_model_to_dict(chat : "Chat") -> dict:
     """
     if not chat:
         return {}
-    receiver = chat.participants.exclude(id=chat.id).first()
+    participants = chat.participants.all()
+    if participants is None:
+        return {}
     return {
         "id": chat.id,
         "name": chat.name,
-        "receiver": receiver.username,
-        "avatar": receiver.avatar
+        "participants": { participant.username: participant.id for participant in participants },
     }
 
 
@@ -42,6 +42,7 @@ class Message(models.Model):
     timestamp = models.DateTimeField(default=timezone.now)
     sender = models.ForeignKey(User, on_delete=models.CASCADE, related_name="messages")
     read = models.BooleanField(default=False)
+    content = models.TextField()
 
     def get_messages(chat_id, skip=0, limit=10) -> list:
         messages = Message.objects.filter(chat_id=chat_id).order_by("-timestamp")[skip:skip+limit]

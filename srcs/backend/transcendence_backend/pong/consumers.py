@@ -1,13 +1,8 @@
-from cgitb											import text
-from ctypes											import Union
-from multiprocessing.managers						import ListProxy
 from threading										import Lock
 from logging										import Logger
-from time 											import timezone
 from typing											import Literal, Dict, List, TypeVar, TypedDict, NotRequired, Any
 from asgiref.sync									import sync_to_async
-from .models										import Pong
-from .services										import PongService, join_game, pause_game, resume_game, get_side
+from .services										import PongService, join_game, pause_game, resume_game
 from stats.services									import StatService
 from channels.generic.websocket						import AsyncWebsocketConsumer, AsyncConsumer
 from channels.db									import database_sync_to_async
@@ -147,7 +142,7 @@ class PongState:
 	def __iter__(self) -> 'PongState':
 		return self
 
-	def __next__(self) -> PongStateDict:
+	def __next__(self) -> PongStateDict: # type: ignore
 		if self._paused:
 			return
 		self._check_collisions()
@@ -267,7 +262,7 @@ class PongRunner(AsyncConsumer):
 			await sync_to_async(PongService.finish_game)(int(gid))
 			return
 		result = self._games[gid].get_results()
-		await database_sync_to_async(PongService.finish_game)(int(gid), result)
+		winner = await database_sync_to_async(PongService.finish_game)(int(gid), result)
 		await database_sync_to_async(StatService.set_stats)(result['left'],
 													  		result['right'],
 															result['s1'],
@@ -280,6 +275,15 @@ class PongRunner(AsyncConsumer):
 								'text': json.dumps({"status": "Game over"}),
 							}
 						)
+			await self.channel_layer.send(
+				'tournament_runner',
+				{
+					'type': 'game.finished',
+					'gid': gid,
+					'data' : result,
+					'winner' : winner
+				}
+			)
 		if gid in self._games:
 			self._tasks[gid].cancel()
 			del self._tasks[gid]
@@ -318,7 +322,7 @@ class PongRunner(AsyncConsumer):
 						'text': json.dumps(state),
 					}
 				)
-				if state.get('s1', 0) == 10 or  state.get('s2', 0) == 10:
+				if state.get('s1', 0) == 1 or  state.get('s2', 0) == 1:
 					await self.stop_game({'gid': gid})
 			await asyncio.sleep(0.01)
 
@@ -330,6 +334,7 @@ class PongConsumer(AsyncWebsocketConsumer):
  
 	async def connect(self) -> None:
 		await self.accept()
+		self.send(json.dumps({'message': 'Connected'}))
 
 	async def update_game_state(self, message: Dict[str, str]) -> None:
 		await self.send(message['text'])

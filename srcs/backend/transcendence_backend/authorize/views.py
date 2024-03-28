@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 # Create your views here.
 
-def create_token(jwt : JWT, user : User, expiration : datetime, isa : datetime, second_factor : bool = False) -> str:
+def create_token(jwt : JWT, user : User, expiration : datetime, isa : datetime | None, second_factor : bool = False) -> str:
     """
     Creates a token for the user
     :param jwt: JWT object
@@ -24,6 +24,8 @@ def create_token(jwt : JWT, user : User, expiration : datetime, isa : datetime, 
     :param expiration: Expiration date
     :param isa: Issued at date
     """
+    if isa == None:
+        isa = datetime.now()
     return jwt.create_jwt({"sub": user.id,
                            "exp": strftime("%Y-%m-%d %H:%M:%S",expiration.timetuple()),
                            "iss" : "ft_transcendence",

@@ -3,7 +3,7 @@ info:
   title: Transcendence backend REST API
   version: '1.0'
 servers:
-  - url: https://api.server.test/v1
+  - url: http://localhost:8000
 components:
   schemas:
     GeneralError:
@@ -68,6 +68,13 @@ components:
         message:
           type: string
 
+    TOTP:
+      type: object
+      properties:
+        secret:
+          type: string
+          example: "JBSWY3DPE"
+
     GameCreate:
       type: object
       properties:
@@ -79,21 +86,34 @@ components:
     Game:
       type: object
       properties:
-        game_id:
+        id:
           type: integer
-        active:
-          type: boolean
-        users:
+        players:
           type: array
           items:
-            type: object
-            properties:
-              user_id:
-                type: integer
-              score:
-                type: integer
+            type: string
+        status:
+          type: string
+        score1:
+          type: integer
+        score2:
+          type: integer
+        timestamp:
+          type: string
+    Stats:
+      type: object
+      properties:
+        games_played:
+          type: integer
+        games_won:
+          type: integer
+        games_lost:
+          type: integer
+        total_points:
+          type: integer
+        win_streaks:
+          type: integer
 
-        
   parameters:    
     skipParam:
       name: skip
@@ -111,6 +131,21 @@ components:
       schema:
         type: integer
         format: int32
+    typeParam:
+      name: type
+      in: query
+      description: type of game
+      required: true
+      schema:
+        type: string
+        enum: [ "running", "finished", "pending", "paused" ]
+    meParam:
+      name: me
+      in: query
+      description: me
+      required: false
+      schema:
+        type: boolean
     activeParam:
       name: active
       in: query
@@ -128,29 +163,49 @@ components:
     OK:
       description: OK
       content:
-        text/plain:
+        application/json:
           schema:
-            type: string
+            type: object
+            properties:
+              status:
+                type: string
+                example: "OK"
+    authorized:
+      description: User is authorized
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              access_token:
+                type: string
+                example: "eyJ0eXAiO"
+              refresh_token:
+                type: string
+                example: "eyJ0eXAiO"
   securitySchemes:
-    auth:
-      type: oauth2
-      flows: 
-        implicit:
-          authorizationUrl: https://example.org/api/oauth/dialog
-          scopes:
-            write:users: modify users
-            read:users: read users
+    BasicAuth:
+      type: http
+      scheme: basic
+    BearerAuth:
+      type: http
+      scheme: bearer
 paths:
   /healthcheck:
     get:
+      tags:
+        - "Healthcheck"
       responses:
-        '200':
+        '200':   
           $ref: '#/components/responses/OK'
         default:
           $ref: '#/components/responses/GeneralError'
 
-  /login:
+  /auth:
     post:
+      tags:
+        - "Auth"
+
       requestBody:
         content:
           'application/json':
@@ -163,39 +218,59 @@ paths:
                   type: string
       responses:
         '200':
-          description: "Successful login"
-          headers:
-            Set-Cookie:
-              description: "Session ID cookie"
-              schema:
-                type: string
-            Location:
-              description: "Redirect location"
-              schema:
-                type: string
-              example: "/users/me"
+          $ref: "#/components/responses/authorized"
         default:
           $ref: '#/components/responses/GeneralError'
+  
+  /auth/refresh:
+    get:
+      tags:
+        - "Auth"
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          $ref: "#/components/responses/authorized"
+        default:
+          $ref: '#/components/responses/GeneralError'
+  
+  /auth/verify:
+    post:
+      tags:
+        - "Auth"
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          'application/json':
+            schema:
+              type: object
+              properties:
+                2fa_code:
+                  type: string
+      responses:
+        '200':
+          $ref: "#/components/responses/authorized"
+        default:
+          $ref: '#/components/responses/GeneralError'
+  
   /logout:
     post:
+      tags:
+        - "Auth"
       security:
         - bearerAuth: [ ]
       responses:
         '200':
-          description: "Successful logout of user"
-          content:
-            'application/json':
-              schema:
-                type: object
-                properties:
-                  status:
-                    type: string
-                    example: "Logged out"
+          $ref: "#/components/responses/OK"
         default:
           $ref: '#/components/responses/GeneralError'
+## Users Tag
 
   /users:
     get:
+      tags:
+        - "Users"
       security:
         - bearerAuth: [ ]
       
@@ -222,6 +297,8 @@ paths:
                 items:
                   $ref: '#/components/schemas/User'
     post:
+      tags:
+        - "Users"
       security:
         - bearerAuth: [ ]
       description: "Username update endpoint"
@@ -243,6 +320,8 @@ paths:
 
   /users/me:
     get:
+      tags:
+        - "Users"
       security:
         - bearerAuth: [ ]
       responses:
@@ -255,6 +334,8 @@ paths:
                 items:
                   $ref: '#/components/schemas/User'
     post:
+      tags:
+        - "Users"
       requestBody:
         content:
           'application/json':
@@ -270,9 +351,10 @@ paths:
                 items:
                   $ref: '#/components/schemas/User'
         default:
-          $ref: '#/components/responses/GeneralError'
-    
+          $ref: '#/components/responses/GeneralError'  
     delete:
+      tags:
+        - "Users"
       security:
         - bearerAuth: [ ]
       description: "Deletion of user currently logged in user"
@@ -281,10 +363,11 @@ paths:
           description: "Successful deletion of currently logged in user"
         default:
           $ref: '#/components/responses/GeneralError'
-        
       
   /users/{id}:
     get:
+      tags:
+        - "Users"
       security:
         - bearerAuth: [ ]
       description: "Retrieval of user by ID"
@@ -298,15 +381,171 @@ paths:
                 $ref: '#/components/schemas/User'
         default:
           $ref: '#/components/responses/GeneralError'
-      # /friends (GET)
-    # /friendrequest/incoming
-    # /friendrequest (GET)
-    # /friendrequest (POST) -> BODY {receiver_id, message}
-    # /friendrequest/accept (POST) -> BODY {request_id}
-    # /friendrequest/decline (POST) -> BODY {request_id}
 
+  /block:
+    get:
+      tags:
+        - "BlockedUsers"
+      security:
+        - bearerAuth: [ ]
+      description: "Retrieval of blocked users of currently logged in user"
+      responses:
+        '200':
+          description: "Successful retrieval of blocked users of currently logged in user"
+          content:
+            'application/json':
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/User'
+        default:
+          $ref: '#/components/responses/GeneralError'
+    post:
+      tags:
+        - "BlockedUsers"
+      security:
+        - bearerAuth: [ ]
+      description: "Block user by user_id"
+      requestBody:
+        content:
+          'application/json':
+            schema:
+              type: object
+              properties:
+                user_id:
+                  type: integer
+      responses:
+        '200':
+          description: "Successful block"
+          content:
+            'application/json':
+              schema:
+                type: object
+                $ref: '#/components/schemas/User'
+        default:
+          $ref: '#/components/responses/GeneralError'
+    put:
+      tags:
+        - "BlockedUsers"
+      security:
+        - bearerAuth: [ ]
+      requestBody:
+        content:
+          'application/json':
+            schema:
+              type: object
+              properties:
+                user_id:
+                  type: integer
+      responses:
+        '200':
+          description: "Successful unblock"
+          content:
+            'application/json':
+              schema:
+                type: object
+                $ref: '#/components/schemas/User'
+        default:
+          $ref: '#/components/responses/GeneralError'
+
+  /2fa:
+    get:
+      tags:
+        - "2FA"
+      security:
+        - bearerAuth: [ ]
+      description: "Retrieve the 2fa user secret"
+      responses:
+        '200':
+          description: "Retrieval of 2fa secret of currently logged in user"
+          content:
+            'application/json':
+              schema:
+                type: object
+                $ref: '#/components/schemas/TOTP'
+        default:
+          $ref: '#/components/responses/GeneralError'
+    post:
+      tags:
+        - "2FA"
+      security:
+        - bearerAuth: [ ]
+      description: "Creates a TOTP Secret for currently logged in user"
+      responses:
+        '200':
+          description: "Successful 2fa enabled"
+          content:
+            'application/json':
+              schema:
+                type: object
+                $ref: '#/components/schemas/TOTP'
+        default:
+          $ref: '#/components/responses/GeneralError'
+    put:
+      tags:
+        - "2FA"
+      security:
+        - bearerAuth: [ ]
+      description: "Updates the TOTP Secret for currently logged in user"
+      responses:
+        '200':
+          description: "Successful secret update"
+          content:
+            'application/json':
+              schema:
+                type: object
+                $ref: '#/components/schemas/TOTP'
+        default:
+          $ref: '#/components/responses/GeneralError'
+    delete:
+      tags:
+        - "2FA"
+      security:
+        - bearerAuth: [ ]
+      description: "Disables 2fa for currently logged in user if enabled"
+      responses:
+        '200':
+          description: "Successful 2fa disabled"
+          content:
+            'application/json':
+              schema:
+                type: object
+                $ref: '#/components/responses/OK'
+        default:
+          $ref: '#/components/responses/GeneralError'
+  
+  /2fa/verify:
+    post:
+      tags:
+        - "2FA"
+      security:
+        - bearerAuth: [ ]
+      requestBody:
+        content:
+          'application/json':
+            schema:
+              type: object
+              properties:
+                2fa_code:
+                  type: string
+      responses:
+        '200':
+          description: "Successful 2fa verification"
+          content:
+            'application/json':
+              schema:
+                type: object
+                $ref: '#/components/responses/authorized'
+        default:
+          $ref: '#/components/responses/GeneralError'
+      
+
+
+# Friends Tag
   /friends:
     get:
+      tags:
+        - "Friends"
       security:
         - bearerAuth: [ ]
       description: "Retrieval of friends of currently logged in user"
@@ -321,8 +560,11 @@ paths:
                   $ref: '#/components/schemas/User'
         default:
           $ref: '#/components/responses/GeneralError'
+  
   /friendrequest/incoming:
     get:
+      tags:
+        - "Friends"
       security:
         - bearerAuth: [ ]
       description: "Retrieval of incoming friend requests of currently logged in user"
@@ -337,8 +579,11 @@ paths:
                   $ref: '#/components/schemas/User'
         default:
           $ref: '#/components/responses/GeneralError'
+  
   /friendrequest:
     get:
+      tags:
+        - "Friends"
       security:
         - bearerAuth: [ ]
       description: "Retrieval of friend requests of currently logged in user"
@@ -354,6 +599,8 @@ paths:
         default:
           $ref: '#/components/responses/GeneralError'
     post:
+      tags:
+        - "Friends"
       security:
         - bearerAuth: [ ]
       description: "Send friend request to user"
@@ -380,6 +627,8 @@ paths:
 
   /friendrequest/accept:
     post:
+      tags:
+        - "Friends"
       security:
         - bearerAuth: [ ]
       description: "Accept friend request"
@@ -404,6 +653,8 @@ paths:
 
   /friendrequest/decline:
     post:
+      tags:
+        - "Friends"
       security:
         - bearerAuth: [ ]
       description: "Decline friend request"
@@ -426,21 +677,77 @@ paths:
         default:
           $ref: '#/components/responses/GeneralError'
 
-  /games:
+  /unfriend:
     post:
-      description: 'Adds new game with userID as playerOne'
-
+      tags:
+        - "Friends"
+      security:
+        - bearerAuth: [ ]
+      description: "Unfriend user"
+      requestBody:
+        content:
+          'application/json':
+            schema:
+              type: object
+              properties:
+                friend_id:
+                  type: integer
       responses:
-        '201':
-          description: "Game set up, waiting for player 2"
+        '202':
+          description: "Successful unfriend"
           content:
             'application/json':
               schema:
-                $ref: "#/components/schemas/Game"
+                type: object
+                $ref: '#/components/schemas/User'
         default:
-          $ref: "#/components/responses/GeneralError"
+          $ref: '#/components/responses/GeneralError'
 
+# Stats Tag
+  /users/{id}/stats:
     get:
+      tags:
+        - "Stats"
+      security:
+        - bearerAuth: [ ]
+      description: "Retrieval of stats of user by ID"
+      responses:
+        '200':
+          description: "Successful retrieval of stats of user by ID"
+          content:
+            'application/json':
+              schema:
+                type: object
+                $ref: '#/components/schemas/Stats'
+        default:
+          $ref: '#/components/responses/GeneralError'
+    
+  /leaderboard:
+    get:
+      tags:
+        - "Stats"
+      security:
+        - bearerAuth: [ ]
+      description: "Retrieval of leaderboard"
+      responses:
+        '200':
+          description: "Successful retrieval of leaderboard"
+          content:
+            'application/json':
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Stats'
+        default:
+          $ref: '#/components/responses/GeneralError'
+
+  /games:
+    get:
+      tags:
+        - "Pong"
+      security:
+        - bearerAuth: [ ]
+      description: "Retrieval of games"
       parameters:
         - name: skip
           in: query
@@ -454,14 +761,20 @@ paths:
           required: false
           schema:
             $ref: '#/components/parameters/limitParam'
-        - name: active
+        - name: type
           in: query
-          description: 'Active'
+          description: 'Type'
+          required: true
+          schema:
+            $ref: '#/components/parameters/typeParam'
+        - name: me
+          in: query
+          description: 'Me'
           required: false
           schema:
-            $ref: '#/components/parameters/activeParam'
+            $ref: '#/components/parameters/meParam'
       responses:
-        '201':
+        '200':
           description: "Successful games"
           content:
             'application/json':
@@ -469,15 +782,100 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/Game'
-  /games/{game_id}/join:
-    put:  
-      description: "User Me join game_id"
+        default:
+          $ref: '#/components/responses/GeneralError'
+      
+    post:
+      tags:
+        - "Pong"
+      security:
+        - bearerAuth: [ ]
+      
+      description: 'Adds new game with userID as playerOne'
+
       responses:
-        '202':
-          description: "Join game {id}"
+        '201':
+          description: "Game set up, waiting for player 2"
+          content:
+            'application/json':
+              schema:
+                $ref: "#/components/schemas/Game"
+        default:
+          $ref: "#/components/responses/GeneralError"
+    
+    delete:
+      tags:
+        - "Pong"
+      security:
+        - bearerAuth: [ ]
+      description: "Deletes pending game of currently logged in user"
+      responses:
+        '200':
+          description: "Successful deletion game"
           content:
             'application/json':
               schema:
                 type: object
-                items:
-                  $ref: '#/components/schemas/Game'
+                $ref: '#/components/schemas/Game'
+        default:
+          $ref: '#/components/responses/GeneralError'
+
+  /games/{game_id}:
+    get:
+      tags:
+        - "Pong"
+      security:
+        - bearerAuth: [ ]
+      description: "Retrieval of game by ID"
+      responses:
+        '200':
+          description: "Successful retrieval of game by ID"
+          content:
+            'application/json':
+              schema:
+                type: object
+                $ref: '#/components/schemas/Game'
+        default:
+          $ref: '#/components/responses/GeneralError'
+
+  #   get:
+  #     parameters:
+  #       - name: skip
+  #         in: query
+  #         description: 'Skip'
+  #         required: false
+  #         schema:
+  #           $ref: '#/components/parameters/skipParam'
+  #       - name: limit
+  #         in: query
+  #         description: 'Limit'
+  #         required: false
+  #         schema:
+  #           $ref: '#/components/parameters/limitParam'
+  #       - name: active
+  #         in: query
+  #         description: 'Active'
+  #         required: false
+  #         schema:
+  #           $ref: '#/components/parameters/activeParam'
+  #     responses:
+  #       '201':
+  #         description: "Successful games"
+  #         content:
+  #           'application/json':
+  #             schema:
+  #               type: array
+  #               items:
+  #                 $ref: '#/components/schemas/Game'
+  # /games/{game_id}/join:
+  #   put:  
+  #     description: "User Me join game_id"
+  #     responses:
+  #       '202':
+  #         description: "Join game {id}"
+  #         content:
+  #           'application/json':
+  #             schema:
+  #               type: object
+  #               items:
+  #                 $ref: '#/components/schemas/Game'

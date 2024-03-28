@@ -45,7 +45,7 @@ class NetworkClient(metaclass=utils.SingletonMeta):
             self.validate_method(method)
             if method == "POST" or method == "PUT" or method == "PATCH" and body:
                 self.headers["Content-Type"] = "application/json"
-            connection = http.HTTPConnection("localhost", 8000)
+            connection = http.HTTPConnection("c2s15d84.42wolfsburg.de", 8000)
             try:
                 connection.request(method, path, body, headers=self.headers)
                 response = Response(connection.getresponse())

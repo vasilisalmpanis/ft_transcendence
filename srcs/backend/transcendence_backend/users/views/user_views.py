@@ -1,3 +1,4 @@
+from email.mime import base
 from django.http                        import JsonResponse
 from django.views                       import View
 from django.views.decorators.http       import require_http_methods
@@ -13,7 +14,9 @@ from django.conf                        import settings
 from datetime                           import datetime, timedelta
 import authorize.views
 import json
-import urllib.parse
+import base64
+
+
 
 
 def health_check(request) -> JsonResponse:
@@ -32,19 +35,7 @@ class UserView(View):
         """
         skip = int(request.GET.get("skip", 0))
         limit = int(request.GET.get("limit", 10))
-        users_not_blocked_by_me = User.objects.exclude(blocked=user)
-        users_not_blocked_me = User.objects.exclude(blocked_me=user)
-
-        # Intersection of users who haven't blocked me and users whom I haven't blocked
-        users = users_not_blocked_by_me.intersection(users_not_blocked_me)[skip:skip+limit]
-        data = [
-            {
-                "name": user.username,
-                "id": user.id,
-                "avatar": user.avatar
-            }
-            for user in users
-        ]
+        data = UserService.get_all_users(user, skip, limit)
         return JsonResponse(data, status=200, safe=False)
     
     def post(self, request) -> JsonResponse:
@@ -60,16 +51,15 @@ class UserView(View):
         if not username or not password or not email:
             return JsonResponse({"status": "error"}, status=400)
         try:
-            User.objects.create_user(username=username, 
+            new_user = UserService.create_user(username=username, 
                                      password=password, 
-                                     email=email, 
+                                     email=email,
                                      is_staff=isstaff, 
                                      is_superuser=issuper
                                      )
-            Stats.objects.create(user=User.objects.get(username=username))
-            return JsonResponse({"status": "User Created"}, status=201)
-        except Exception:
-            return JsonResponse({"status": "creating user"}, status=400)
+            return JsonResponse(new_user, status=201, safe=False)
+        except Exception as e:
+            return JsonResponse({"status": str(e)}, status=400)
 
 @require_http_methods(["GET"])
 @jwt_auth_required()
@@ -80,14 +70,32 @@ def user_by_id_view(request, user : User, id) -> JsonResponse:
     """
     try:
         user = User.objects.get(id=id)
+        data = {
+            "user id" : user.id,
+            "username": user.username,
+            "avatar": base64.b64encode(user.avatar).decode('utf-8'),
+        }
+        return JsonResponse(data, safe=False)
     except User.DoesNotExist:
         return JsonResponse({"Error" : "User Doesn't Exist"}, status=404)
-    data = {
-        "user id" : user.id,
-        "username": user.username,
-        "avatar": user.avatar,
-    }
-    return JsonResponse(data, safe=False)
+
+@require_http_methods(["GET"])
+@jwt_auth_required()
+def user_by_username_view(request, user : User, username) -> JsonResponse:
+    """
+    Returns user data by id
+    User must be authenticated to receive data
+    """
+    try:
+        user = User.objects.get(username=username)
+        data = {
+            "user id" : user.id,
+            "username": user.username,
+            "avatar": base64.b64encode(user.avatar).decode('utf-8'),
+        }
+        return JsonResponse(data, safe=False)
+    except User.DoesNotExist:
+        return JsonResponse({"error" : "User Doesn't Exist"}, status=404)
 
 @method_decorator(jwt_auth_required(), name="dispatch")
 class CurrentUserView(View):
@@ -99,7 +107,7 @@ class CurrentUserView(View):
         data = {
             "username": user.username,
             "id": user.id,
-            "avatar": user.avatar
+            "avatar": base64.b64encode(user.avatar).decode('utf-8'),
         }
         return JsonResponse(data, status=200)
     
@@ -118,16 +126,12 @@ class CurrentUserView(View):
         Updates user username, password, email, and avatar
         """
         data = json.loads(request.body)
-        if "username" in data:
-            user.username = data["username"]
-        if "password" in data:
-            user.set_password(data["password"])
-        if "email" in data:
-            user.email = data["email"]
-        if "avatar" in data:
-            user.avatar = data["avatar"]
-        user.save()
-        return JsonResponse({"status": "User Updated"}, status=200)
+        username = data.get("username", None)
+        password = data.get("password", None)
+        email = data.get("email", None)
+        avatar = data.get("avatar", None)
+        updated_user = UserService.update_user(user, username, password, email, avatar)
+        return JsonResponse(updated_user, status=200, safe=False)
 
 @jwt_auth_required()
 def get_friends(request, user : User) -> JsonResponse:
@@ -175,8 +179,8 @@ class BlockedUsersView(View):
         if not user_id:
             return JsonResponse({"status": "error"}, status=400)
         try:
-            UserService.block(user, user_id)
-            return JsonResponse({"status": "User Blocked"}, status=200)
+            response = UserService.block(user, user_id)
+            return JsonResponse(response, status=200)
         except Exception as e:
             return JsonResponse({"status": f"{e}"}, status=400)
         
@@ -191,8 +195,8 @@ class BlockedUsersView(View):
         if not user_id:
             return JsonResponse({"status": "error"}, status=400)
         try:
-            UserService.unblock(user, user_id)
-            return JsonResponse({"status": "User Unblocked"}, status=200)
+            response = UserService.unblock(user, user_id)
+            return JsonResponse(response, status=200)
         except Exception as e:
             return JsonResponse({"status": f"{e}"}, status=400)
         

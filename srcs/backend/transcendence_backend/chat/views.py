@@ -71,9 +71,9 @@ class ChatView(View):
             chat = ChatService.create_chat(user, id, name)
             if not chat:
                 return JsonResponse({"status": "Chat not created"}, status=400)
-            return JsonResponse({"status": "Chat created"}, status=201)
+            return JsonResponse(chat, status=201, safe=False)
         except Exception as e:
-            return JsonResponse({"status": "Problem creating chat"}, status=401)
+            return JsonResponse({"status": str(e)}, status=401)
 
     def delete(self, request, user : User) -> JsonResponse:
         """
@@ -83,8 +83,9 @@ class ChatView(View):
             id = int(json.loads(request.body).get("chat_id", None))
             if not Chat.objects.filter(id=id).exists() or not Chat.objects.filter(id=id, participants=user).exists():
                 return JsonResponse({"status": "Chat not found"}, status=404)
-            if ChatService.delete_chat(user, id):
-                return JsonResponse({"status": "Chat deleted"}, status=200)
-            return JsonResponse({"status": "Chat not found"}, status=404)
-        except Exception:
-            return JsonResponse({"status": "Chat not found"}, status=404)
+            chat = ChatService.delete_chat(user, id)
+            if chat:
+                return JsonResponse(chat, status=200)
+            return JsonResponse({"status": "Chat not found"}, status=404, safe=False)
+        except Exception as e:
+            return JsonResponse({"status": str(e)}, status=404)

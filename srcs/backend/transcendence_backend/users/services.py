@@ -3,12 +3,74 @@ from .models                    import User, FriendRequest, user_model_to_dict, 
 from django.conf                import settings
 from cryptography.fernet        import Fernet
 from transcendence_backend.totp import get_totp_token
+from typing                     import Any, Dict, List
+from stats.services             import StatService
 import os
 import base64
 
 class UserService:
     @staticmethod
-    def get_friends(user, skip : int = 0, limit : int = 10) -> list[User]:
+    def create_user(username: str, password:str, email:str, is_staff:bool = False, is_superuser:bool = False) -> Dict[str,Any]:
+            avatar = settings.DEFAULT_AVATAR
+            user = User.objects.create_user(username=username,
+                                    password=password,
+                                    email=email,
+                                    avatar=avatar,
+                                    is_staff=is_staff,
+                                    is_superuser=is_superuser)
+            StatService.create_stats(user)
+            return user_model_to_dict(user)
+
+
+    @staticmethod
+    def get_all_users(user: User, skip:int = 0, limit:int = 10) -> List[Dict[str,Any]]:
+        """
+        Returns all users that the user should see
+        :param user: User instance
+        :param skip: int
+        :param limit: int
+        :return: list[Serialized User]
+        """
+        users_not_blocked_by_me = User.objects.exclude(blocked=user)
+        users_not_blocked_me = User.objects.exclude(blocked_me=user)
+
+        # Intersection of users who haven't blocked me and users whom I haven't blocked
+        users = users_not_blocked_by_me.intersection(users_not_blocked_me)[skip:skip+limit]
+        data = [
+            user_model_to_dict(user)
+            for user in users
+        ]
+        return data
+
+
+    @staticmethod
+    def update_user(user : User, username = None, password = None, email = None, avatar = None) -> Dict[str,Any]:
+        """
+        Update user details
+        :param user: User instance
+        :param username: str
+        :param password: str
+        :param email: str
+        :param avatart: str
+        :return: Updated user instance
+        """
+        if username:
+            if User.objects.filter(username=username).exclude(id=user.id).exists():
+                raise Exception("Username already exists")
+            user.username = username
+        if password:
+            user.set_password(password)
+        if email:
+            if User.objects.filter(email=email).exclude(id=user.id).exists():
+                raise Exception("Email already exists")
+            user.email = email
+        if avatar:
+            user.avatar = avatar
+        user.save()
+        return user_model_to_dict(user)
+
+    @staticmethod
+    def get_friends(user, skip : int = 0, limit : int = 10) -> list[dict[str,Any]]:
         """
         Get friends of a user
         :param user: User instance
@@ -38,7 +100,7 @@ class UserService:
         return friend
     
     @staticmethod
-    def block(user : User, user_id : int) -> User:
+    def block(user : User, user_id : int) -> Dict[str,Any]:
         """
         Block a user
         :param user: User instance
@@ -59,10 +121,10 @@ class UserService:
         user.blocked.add(user_to_block)
         FriendRequest.objects.filter(sender_id=user_to_block.id,
                                      receiver_id=user.id).delete()
-        return user_to_block
+        return user_model_to_dict(user_to_block)
     
     @staticmethod
-    def unblock(user : User, user_id : int) -> User:
+    def unblock(user : User, user_id : int) -> Dict[str,Any]:
         """
         Unblock a user
         :param user: User instance
@@ -77,10 +139,10 @@ class UserService:
         if user.id == user_to_unblock.id:
             raise Exception("You cannot unblock yourself")
         user.blocked.remove(user_to_unblock)
-        return user_to_unblock
+        return user_model_to_dict(user_to_unblock)
     
     @staticmethod
-    def get_blocked_users(user : User, skip : int = 0, limit : int = 10) -> list[User]:
+    def get_blocked_users(user : User, skip : int = 0, limit : int = 10) -> List[Dict[str,Any]]:
         """
         Get blocked users of a user
         :param user: User instance
@@ -159,6 +221,8 @@ class SecondFactorService:
         """
         key = settings.FERNET_SECRET.encode()
         f = Fernet(key)
+        if not user.otp_secret:
+            raise Exception("2fa is not enabled")
         otp_secret = f.decrypt(user.otp_secret.encode()).decode()
         # otp_secret += '=' * (-len(otp_secret) % 8)
         otp_secret = otp_secret
@@ -176,12 +240,14 @@ class SecondFactorService:
         """
         key = settings.FERNET_SECRET.encode()
         f = Fernet(key)
+        if not user.otp_secret:
+            raise Exception("2fa is not enabled")
         return f.decrypt(user.otp_secret.encode()).decode()
 
 
 class FriendRequestService:
     @staticmethod
-    def get_user_friend_requests(user : User, type : str) -> list[FriendRequest]:
+    def get_user_friend_requests(user : User, type : str) -> list[Dict[Any,Any]]:
         """
         Get friend requests for a user
         :param user: User instance
@@ -198,7 +264,7 @@ class FriendRequestService:
                 ]
     
     @staticmethod
-    def create_friend_request(sender : User, receiver_id : int, message : str = None) -> FriendRequest:
+    def create_friend_request(sender : User, receiver_id : int, message : str = "") -> FriendRequest:
         """
         Create a friend request for a user
         :param sender: User instance
@@ -211,7 +277,7 @@ class FriendRequestService:
         receiver = User.objects.get(id=receiver_id)
         if not receiver:
             raise Exception("Receiver does not exist")
-        if not message:
+        if message == "":
             message = f"{sender.username} wants to be your friend"
         if sender.friends.filter(id=receiver_id).exists():
             raise Exception("You are already friends")

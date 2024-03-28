@@ -25,10 +25,14 @@ class Game:
         self.stdscr.nodelay(1)
         self.key = None
         try:
-            self.ws = connect("ws://localhost:8000/ws", additional_headers={"Authorization": f"Bearer {self.client.access_token}"})
+            self.ws = connect("ws://c2s15d84.42wolfsburg.de:8000/ws", subprotocols=["Authorization", self.client.access_token])
             self.ws.send(json.dumps({"join": self.game_id}))
             # self.waiting_room()
         except Exception as e:
+            self.stdscr.clear()
+            self.stdscr.addstr(1, 1, str(e))
+            self.stdscr.refresh()
+            self.stdscr.getch()
             self.ws.close()
             self.running = False
             return
