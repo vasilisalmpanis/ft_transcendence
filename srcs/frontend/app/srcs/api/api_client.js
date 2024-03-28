@@ -38,6 +38,18 @@ class ApiClient {
     }
   }
 
+  async proceedResponse(response) {
+    if (response.ok)
+    {
+      let data = await response.json();
+      if (data.message)
+        return {error: data.message};
+      return data;
+    }
+    else
+      return {error: response.status}
+  }
+
   async sendRequest (path, method, body, query) {
     /* Makes request and returns reponse object with all its fields */
     const url = new URL(path, this.baseUrl);
@@ -53,9 +65,12 @@ class ApiClient {
         url.searchParams.append(key, value);
       });
     }
-    const response = await fetch(url, params);
-    await this.checkStatus(response);
-    return response;
+    try {
+      const response = await fetch(url, params);
+      return await this.proceedResponse(response);
+    } catch (error) {
+      return {error: "no connection"};
+    }
   }
 
   async get (path, query) {
@@ -73,38 +88,42 @@ class ApiClient {
     return await this.sendRequest(url, 'PUT', body, query);
   }
 
-  async delete (path, query) {
+  async delete (path, body, query) {
     const url = new URL(path, this.baseUrl);
-    return await this.sendRequest(url, 'DELETE', null, query);
+    return await this.sendRequest(url, 'DELETE', body, query);
   }
 
   async authorize (payload, query = null) {
-    try{
-      const response = await this.sendRequest('auth', 'POST', payload, query);
-      const response_body = await response.json();
-      const access_token = response_body.access_token;
-      const refresh_token = response_body.refresh_token;
-      // dev only
-      if (typeof localStorage === 'undefined') {
-        this.headers['Authorization'] = `Bearer ${access_token}`;
-        return response;
-      }
-      localStorage.setItem('access_token', access_token);
-      localStorage.setItem('refresh_token', refresh_token);
-      return response;
+    let response_body;
+    if ("access_token" in payload)
+      response_body = payload;
+    else {
+      response_body = await this.sendRequest('auth', 'POST', payload, query);
+      console.log(response_body);
     }
-    catch (error) {
-      console.error('Error:', error);
-    }
+    if (response_body.error)
+      return response_body;
+    const access_token = response_body.access_token;
+    const refresh_token = response_body.refresh_token;
+    this.headers['Authorization'] = `Bearer ${access_token}`;
+    localStorage.setItem('access_token', access_token);
+    localStorage.setItem('refresh_token', refresh_token);
+    const me = await this.get("/users/me");
+    if (me.error)
+      return me;
+    localStorage.setItem("me", JSON.stringify(me));
+    return {"ok": true};
+  }
+
+  unauthorize () {
+    localStorage.removeItem('access_token');
+    localStorage.removeItem('refresh_token');
+    localStorage.removeItem('me');
   }
 
   async logout () {
     const response = await this.sendRequest('logout', 'POST', null, null);
-    // dev only
-    if (typeof localStorage !== 'undefined') {
-      localStorage.removeItem('access_token');
-      localStorage.removeItem('refresh_token');
-    }
+    this.unauthorize();
     return response;
   }
 
@@ -145,12 +164,6 @@ class ApiClient {
   }
 };
 
-export default ApiClient;
-
-// TODO check expiration date of access token before making request
-// TODO refresh token if access token is expired
-
-
-export const apiClient = new ApiClient(`http://localhost:8000`);
+export const apiClient = new ApiClient(`http://${window.location.hostname}:8000`);
 
 export default ApiClient;

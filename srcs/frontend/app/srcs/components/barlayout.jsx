@@ -7,6 +7,12 @@ const BarLayout = (props) => {
 		<div className="h-100">
 			<nav className="navbar bg-body-tertiary">
 			  	<div className="container-fluid">
+				  	<button
+						onClick={() => props.route("/")}
+						className="btn btn-outline-secondary me-3"
+					>
+						PONG 42
+					</button>
 					<button
 						onClick={() => props.route("/me")}
 						className="rounded-circle btn btn-outline-secondary me-3 ms-auto"

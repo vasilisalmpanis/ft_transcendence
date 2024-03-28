@@ -4,9 +4,9 @@ import ftReact			from "./ft_react";
 const useRouter = () => {
 	const [path, setPath] = ftReact.useState(location.pathname);
 	window.onpopstate = (ev) => console.log(ev);
-	const route = (newPath) => {
+	const route = (newPath, state) => {
 		if (newPath !== window.location.pathname) {
-			window.history.pushState(null, '', newPath);
+			window.history.pushState(state, '', newPath);
 			setPath(newPath);
 		}
 	};

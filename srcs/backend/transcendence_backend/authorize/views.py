@@ -48,7 +48,7 @@ def login_user(request) -> JsonResponse:
     if username == None or password == None:
         return JsonResponse({"status": "Username or Password were not given"}, status=400)
     user = authenticate(username=username, password=password)
-    user = User.objects.get(username=username)
+    #user = User.objects.get(username=username)
     if user != None:
         jwt = JWT(settings.JWT_SECRET)
         user.is_user_active = True
